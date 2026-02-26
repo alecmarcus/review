@@ -1,0 +1,20 @@
+{
+  "name": "review",
+  "description": "PR review and comment resolution — comprehensive code review with provenance tracing, and automated resolution of PR comments, GitHub issues, and Linear tickets.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Alec Marcus",
+    "url": "https://github.com/alecmarcus"
+  },
+  "repository": "https://github.com/alecmarcus/review",
+  "license": "MIT",
+  "keywords": [
+    "review",
+    "pr",
+    "resolve",
+    "code-review",
+    "github",
+    "linear",
+    "provenance"
+  ]
+}
