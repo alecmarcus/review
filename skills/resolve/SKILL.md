@@ -276,23 +276,35 @@ Process each non-minimized PR-level comment (these are PR body comments, not inl
 For each comment, classify and act:
 
 **Is it a summary of previously resolved threads?**
-- Minimize with classifier `RESOLVED`
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"RESOLVED"}}
+EOF
+```
 
 **Is it outdated and not actionable?** (references code that no longer exists, mentions a stale concern already addressed)
-- Minimize with classifier `OUTDATED`
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"OUTDATED"}}
+EOF
+```
 
 **Is it out of scope?**
-- Minimize with classifier `OFF_TOPIC`
-- Create a GitHub issue:
-  ```bash
-  gh issue create --title "<specific title>" --body "<body>"
-  ```
-  The issue body must include:
-  - Link to the original comment URL
-  - Link to the PR
-  - What specific code/area it concerns (with file paths and line references)
-  - Acceptance criteria for addressing it
-  - References to any relevant artifacts (specs, ADRs, standards)
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"OFF_TOPIC"}}
+EOF
+```
+Then create a GitHub issue:
+```bash
+gh issue create --title "<specific title>" --body "<body>"
+```
+The issue body must include:
+- Link to the original comment URL
+- Link to the PR
+- What specific code/area it concerns (with file paths and line references)
+- Acceptance criteria for addressing it
+- References to any relevant artifacts (specs, ADRs, standards)
 
 **Otherwise (actionable, in-scope feedback):**
 1. Research and resolve as with threads (steps 3–4)
@@ -302,9 +314,12 @@ For each comment, classify and act:
 
    <response body>
    ```
-3. Minimize the original comment with classifier `RESOLVED`
-
-See `references/gh-graphql.md` for `MinimizeComment`.
+3. Minimize the original comment:
+   ```bash
+   gh api graphql --input - << EOF
+   {"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"RESOLVED"}}
+   EOF
+   ```
 
 ### 5.6 Reviews
 
