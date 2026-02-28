@@ -269,11 +269,7 @@ gh issue comment <number> --body "<findings>"
 
 Only close if the issue is fully addressed. If partially addressed, note remaining items.
 
-### 5.5 Linear Tickets
-
-For Linear targets, post a comment and update status via the Linear MCP or CLI.
-
-### 5.6 Non-Thread PR Comments
+### 5.5 Non-Thread PR Comments
 
 Process each non-minimized PR-level comment (these are PR body comments, not inline thread comments — they cannot be replied to with a thread reply).
 
@@ -310,7 +306,7 @@ For each comment, classify and act:
 
 See `references/gh-graphql.md` for `MinimizeComment`.
 
-### 5.7 Reviews
+### 5.6 Reviews
 
 For each `CHANGES_REQUESTED` or `COMMENTED` review:
 
@@ -321,6 +317,10 @@ For each `CHANGES_REQUESTED` or `COMMENTED` review:
 2. Request re-review from the same reviewer:
    - Look up the reviewer's node ID using the `GetUserId` query
    - Use the `RequestReviews` mutation
+
+### 5.7 Linear Tickets
+
+For Linear targets, post a comment and update status via the Linear MCP or CLI.
 
 ## Step 6: Summary
 
