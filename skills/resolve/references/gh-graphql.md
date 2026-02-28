@@ -7,12 +7,12 @@ Reference queries for fetching unresolved threads, replying, and resolving via `
 > passed via `-f`. Always use `gh api graphql --input -` with a heredoc instead, escaping GraphQL
 > `$variables` as `\$variables` to prevent shell expansion.
 
-## Fetch Unresolved Review Threads
+## Fetch PR Data (Threads, Comments, Reviews)
 
-Retrieves only unresolved, non-outdated threads from a PR. Primary query for the resolve skill.
+Retrieves review threads, PR-level comments, and formal reviews in one request.
 
 ```graphql
-query UnresolvedThreads($owner: String!, $repo: String!, $number: Int!) {
+query PRFetch($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
       id
@@ -42,6 +42,26 @@ query UnresolvedThreads($owner: String!, $repo: String!, $number: Int!) {
           }
         }
       }
+      comments(first: 100) {
+        nodes {
+          id
+          url
+          body
+          author { login }
+          createdAt
+          isMinimized
+          minimizedReason
+        }
+      }
+      reviews(first: 50) {
+        nodes {
+          id
+          state
+          body
+          author { login }
+          submittedAt
+        }
+      }
     }
   }
 }
@@ -51,14 +71,26 @@ query UnresolvedThreads($owner: String!, $repo: String!, $number: Int!) {
 
 ```bash
 gh api graphql --input - << EOF
-{"query":"query UnresolvedThreads(\$owner: String!, \$repo: String!, \$number: Int!) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$number) { id title body baseRefName headRefName reviewThreads(first: 100) { nodes { id isResolved isOutdated path line startLine diffSide comments(first: 50) { nodes { id body author { login } createdAt path line startLine } } } } } } }","variables":{"owner":"$OWNER","repo":"$REPO","number":$PR_NUMBER}}
+{"query":"query PRFetch(\$owner: String!, \$repo: String!, \$number: Int!) { repository(owner: \$owner, name: \$repo) { pullRequest(number: \$number) { id title body baseRefName headRefName reviewThreads(first: 100) { nodes { id isResolved isOutdated path line startLine diffSide comments(first: 50) { nodes { id body author { login } createdAt path line startLine } } } } comments(first: 100) { nodes { id url body author { login } createdAt isMinimized minimizedReason } } reviews(first: 50) { nodes { id state body author { login } submittedAt } } } } }","variables":{"owner":"$OWNER","repo":"$REPO","number":$PR_NUMBER}}
 EOF
 ```
 
-### Filter Unresolved
+### Filter Unresolved Threads
 
 ```bash
 ... | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .isOutdated == false)]'
+```
+
+### Filter Active Comments
+
+```bash
+... | jq '[.data.repository.pullRequest.comments.nodes[] | select(.isMinimized == false)]'
+```
+
+### Filter Active Reviews
+
+```bash
+... | jq '[.data.repository.pullRequest.reviews.nodes[] | select(.state == "CHANGES_REQUESTED" or .state == "COMMENTED")]'
 ```
 
 ## Reply to a Review Thread
@@ -135,6 +167,104 @@ mutation UnresolveReviewThread($threadId: ID!) {
 ```bash
 gh api graphql --input - << EOF
 {"query":"mutation UnresolveReviewThread(\$threadId: ID!) { unresolveReviewThread(input: { threadId: \$threadId }) { thread { id isResolved } } }","variables":{"threadId":"$THREAD_ID"}}
+EOF
+```
+
+## Minimize (Hide) a Comment
+
+Hides a PR-level comment. Use for comments that are resolved, outdated, or off-topic.
+
+`classifier` values: `RESOLVED`, `OUTDATED`, `OFF_TOPIC`, `SPAM`, `ABUSE`, `DUPLICATE`
+
+The `subjectId` is the node `id` of the comment from the fetch query.
+
+```graphql
+mutation MinimizeComment($subjectId: ID!, $classifier: ReportedContentClassifiers!) {
+  minimizeComment(input: {
+    subjectId: $subjectId
+    classifier: $classifier
+  }) {
+    minimizedComment {
+      isMinimized
+      minimizedReason
+    }
+  }
+}
+```
+
+### Usage
+
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"$CLASSIFIER"}}
+EOF
+```
+
+## Dismiss a PR Review
+
+Dismisses a formal PR review (REQUEST_CHANGES or COMMENTED) as stale.
+
+```graphql
+mutation DismissReview($reviewId: ID!, $message: String!) {
+  dismissPullRequestReview(input: {
+    pullRequestReviewId: $reviewId
+    message: $message
+  }) {
+    pullRequestReview {
+      id
+      state
+    }
+  }
+}
+```
+
+### Usage
+
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation DismissReview(\$reviewId: ID!, \$message: String!) { dismissPullRequestReview(input: { pullRequestReviewId: \$reviewId, message: \$message }) { pullRequestReview { id state } } }","variables":{"reviewId":"$REVIEW_ID","message":"$DISMISS_MESSAGE"}}
+EOF
+```
+
+## Request Re-Review
+
+Requests re-review from a specific user. Requires the reviewer's node ID, not their login.
+Use the helper query below to look up the ID from a login first.
+
+```graphql
+query GetUserId($login: String!) {
+  user(login: $login) {
+    id
+  }
+}
+```
+
+```bash
+USER_ID=$(gh api graphql --input - << EOF
+{"query":"query GetUserId(\$login: String!) { user(login: \$login) { id } }","variables":{"login":"$REVIEWER_LOGIN"}}
+EOF
+jq -r '.data.user.id')
+```
+
+```graphql
+mutation RequestReviews($pullRequestId: ID!, $userIds: [ID!]!) {
+  requestReviews(input: {
+    pullRequestId: $pullRequestId
+    userIds: $userIds
+    union: true
+  }) {
+    pullRequest {
+      id
+    }
+  }
+}
+```
+
+### Usage
+
+```bash
+gh api graphql --input - << EOF
+{"query":"mutation RequestReviews(\$pullRequestId: ID!, \$userIds: [ID!]!) { requestReviews(input: { pullRequestId: \$pullRequestId, userIds: \$userIds, union: true }) { pullRequest { id } } }","variables":{"pullRequestId":"$PR_NODE_ID","userIds":["$USER_ID"]}}
 EOF
 ```
 

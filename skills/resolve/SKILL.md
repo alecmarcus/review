@@ -9,7 +9,14 @@ allowed-tools: Bash, Read, Glob, Grep, Task, WebFetch, mcp__vestige__search, mcp
 
 # /review:resolve
 
-Resolve unresolved PR review threads, GitHub issues, or Linear tickets. For each item: research the claim, validate or fix, reply with reasoning and artifact citations, and resolve.
+Resolve:
+- PR review threads
+- PR comments
+- GitHub issues
+- Linear tickets
+- etc.
+
+For each item: research the claim, validate or fix, reply with reasoning and artifact citations, and resolve.
 
 ## Step 1: Parse Target
 
@@ -32,25 +39,30 @@ Store resolved targets. If resolution fails for any target, report the error for
 
 ## Step 2: Fetch
 
-### 2.1 PR Threads
+### 2.1 PR Threads, Comments & Reviews
 
-For PR targets, fetch metadata and unresolved review threads using `gh` CLI with GraphQL.
+For PR targets, fetch threads, PR-level comments, and formal reviews in one GraphQL request.
 
-See `references/gh-graphql.md` for the exact queries.
+See `references/gh-graphql.md` for the exact query (`PRFetch`).
 
 ```bash
-gh api graphql -f query='<UNRESOLVED_THREADS_QUERY>' -f owner="$OWNER" -f repo="$REPO" -F number=$PR_NUMBER
+gh api graphql --input - << EOF
+{"query":"<PR_FETCH_QUERY>","variables":{"owner":"$OWNER","repo":"$REPO","number":$PR_NUMBER}}
+EOF
 ```
 
 Parse the response to extract:
-- Thread ID (`id`)
-- First comment body (the review comment)
-- File path and line range
-- Comment author
-- All replies in the thread
-- Whether the thread is resolved or outdated
 
-Filter to only **unresolved, non-outdated** threads. If no unresolved threads exist, report that and stop.
+**Review threads** — filter to unresolved, non-outdated:
+- Thread ID, file path, line range
+- First comment body and author
+- All replies
+
+**PR-level comments** — filter to non-minimized:
+- Comment ID (`id`), URL, body, author
+
+**Reviews** — filter to `CHANGES_REQUESTED` or `COMMENTED` state:
+- Review ID, body, author, state
 
 Also fetch the PR diff for context:
 ```bash
@@ -77,11 +89,11 @@ Extract the ticket description, comments, and status.
 
 ### 2.4 Optional: Update PR Description
 
-If the PR title or description is unclear, vague, or missing context, offer to update it with a clearer summary based on the diff and commit history. Do not auto-update without stating the proposed change.
+If the PR title or description is unclear, vague, missing context, or has outdated checklist items, update it with a clearer summary based on the diff and commit history.
 
 ## Step 3: Research (Parallel Per Item)
 
-For each unresolved thread/issue/ticket, dispatch a **Task subagent** to research it. Dispatch all research agents in parallel.
+For each unresolved comment/review/thread/issue/ticket, dispatch a **Task subagent** to research it. Dispatch all research agents in parallel.
 
 Each research agent receives:
 
@@ -114,8 +126,8 @@ Thread replies: <any existing replies>
    - `CLAUDE.md` — project rules
    - Commit messages on this PR for rationale
    - Any local `.docs/` near the changed files
-4. Search vestige memory for relevant context
-5. Evaluate the comment's claim against the code AND the artifacts
+4. Search all available memories and memory tools for relevant context
+5. Evaluate the comment's claim against the code AND the artifacts. Be receptive and objective.
 
 ### Output
 
@@ -140,6 +152,7 @@ Return a structured verdict:
 - **Conservative invalidation.** Only mark INVALID when you can cite a specific artifact, standard, or architectural decision that directly contradicts the comment's claim.
 - **PARTIALLY_VALID** when the comment identifies a real issue but proposes the wrong solution, or when only part of the feedback applies.
 - **Always cite artifacts.** Every verdict must reference at least one artifact. If no artifact is relevant, note that as a provenance gap.
+- **Don't use scope as invalidation reasoning.** Scope alone is NEVER enough reason to invalidate an otherwise valid claim. You should accept valid claims and create plans to address them, even if they seem like scope-creep. At most, you may create a follow up story or issue. 
 
 ## Step 4: Fix (Parallel Where File-Isolated)
 
@@ -232,21 +245,13 @@ Partially addressed in <commit-sha>.
 Refs: <artifact citations>
 ```
 
-### 5.2 Post Replies
+### 5.2 Post GitHub Replies
 
-Post replies using GraphQL. See `references/gh-graphql.md` for the mutation.
-
-```bash
-gh api graphql -f query='<ADD_COMMENT_MUTATION>' -f threadId="<thread-id>" -f body="<reply>"
-```
+Post replies using GraphQL. See `references/gh-graphql.md` for the `AddPullRequestReviewThreadReply` mutation.
 
 ### 5.3 Resolve Threads
 
-After posting the reply, resolve the thread:
-
-```bash
-gh api graphql -f query='<RESOLVE_THREAD_MUTATION>' -f threadId="<thread-id>"
-```
+After posting the reply, resolve the thread using the `ResolveReviewThread` mutation.
 
 **Resolution rules:**
 - VALID + fix committed + tests pass → resolve
@@ -268,6 +273,55 @@ Only close if the issue is fully addressed. If partially addressed, note remaini
 
 For Linear targets, post a comment and update status via the Linear MCP or CLI.
 
+### 5.6 Non-Thread PR Comments
+
+Process each non-minimized PR-level comment (these are PR body comments, not inline thread comments — they cannot be replied to with a thread reply).
+
+For each comment, classify and act:
+
+**Is it a summary of previously resolved threads?**
+- Minimize with classifier `RESOLVED`
+
+**Is it outdated and not actionable?** (references code that no longer exists, mentions a stale concern already addressed)
+- Minimize with classifier `OUTDATED`
+
+**Is it out of scope?**
+- Minimize with classifier `OFF_TOPIC`
+- Create a GitHub issue:
+  ```bash
+  gh issue create --title "<specific title>" --body "<body>"
+  ```
+  The issue body must include:
+  - Link to the original comment URL
+  - Link to the PR
+  - What specific code/area it concerns (with file paths and line references)
+  - Acceptance criteria for addressing it
+  - References to any relevant artifacts (specs, ADRs, standards)
+
+**Otherwise (actionable, in-scope feedback):**
+1. Research and resolve as with threads (steps 3–4)
+2. Post a new PR comment with the response. Start the body with a link to the original:
+   ```
+   > [Original comment](<original-comment-url>)
+
+   <response body>
+   ```
+3. Minimize the original comment with classifier `RESOLVED`
+
+See `references/gh-graphql.md` for `MinimizeComment`.
+
+### 5.7 Reviews
+
+For each `CHANGES_REQUESTED` or `COMMENTED` review:
+
+1. Dismiss the review as stale:
+   - Message: `"Addressed — see inline thread replies and comment responses."`
+   - Use `DismissReview` mutation from `references/gh-graphql.md`
+
+2. Request re-review from the same reviewer:
+   - Look up the reviewer's node ID using the `GetUserId` query
+   - Use the `RequestReviews` mutation
+
 ## Step 6: Summary
 
 After all items are processed, output a summary:
@@ -275,18 +329,25 @@ After all items are processed, output a summary:
 ```
 ## Resolve Summary: PR #<number>
 
-**Threads processed:** <total>
-**Fixed:** <count> (<list of files changed>)
-**Invalidated:** <count>
-**Partially addressed:** <count>
-**Skipped (low confidence):** <count>
-**Remaining unresolved:** <count>
+### Threads
+**Processed:** <total> | **Fixed:** <count> | **Invalidated:** <count> | **Partial:** <count> | **Skipped:** <count>
+
+### Comments
+**Processed:** <total> | **Minimized (resolved):** <count> | **Minimized (outdated):** <count> | **Minimized (off-topic):** <count> | **Responded + minimized:** <count>
+
+### Reviews
+**Dismissed:** <count> | **Re-review requested:** <count>
+
+---
 
 ### Fixes
 - <file>:<line> — <description> (commit <sha>)
 
 ### Invalidations
 - <file>:<line> — <reasoning summary>
+
+### Issues Created
+- <issue-url> — <title>
 
 ### Requires Human Review
 - <file>:<line> — <why this needs human judgment>

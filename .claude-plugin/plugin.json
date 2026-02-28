@@ -1,7 +1,7 @@
 {
   "name": "review",
   "description": "PR review and comment resolution — comprehensive code review with provenance tracing, and automated resolution of PR comments, GitHub issues, and Linear tickets.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "Alec Marcus",
     "url": "https://github.com/alecmarcus"
