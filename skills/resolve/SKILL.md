@@ -116,9 +116,10 @@ Thread replies: <any existing replies>
 
 ### Instructions
 
-1. Read the file at <path> around lines <start>-<end> with surrounding context
-2. Read the diff for this file from the PR
-3. Search for relevant artifacts:
+1. **Read the full file** at <path> — not just the referenced lines. Understand the module context: imports, exports, class structure, adjacent functions. Then focus on lines <start>-<end> with at least 50 lines of surrounding context.
+2. **Read the full diff** for this file and related files (imports, callers, test files). Understand what changed and what stayed the same.
+3. **Read git history** for the changed lines to understand what the code looked like before and why it changed: `git log --follow -p -- <path>` or `git blame <path>`.
+4. **Read relevant artifacts in full** — not just referenced sections:
    - `.docs/specs/` — specifications that govern this code
    - `.docs/adrs/` — architectural decisions that apply
    - `.docs/standards/` — coding standards that apply
@@ -126,8 +127,9 @@ Thread replies: <any existing replies>
    - `CLAUDE.md` — project rules
    - Commit messages on this PR for rationale
    - Any local `.docs/` near the changed files
-4. Search all available memories and memory tools for relevant context
-5. Evaluate the comment's claim against the code AND the artifacts. Be receptive and objective.
+5. **Search Vestige** specifically for past review findings on the same files, past bug fixes in the same module, and known anti-patterns: `mcp__vestige__search(query: "<project> <file-path> review findings bug fix anti-pattern")`. Include search results in your verdict.
+6. **Interpret both literally and thematically** — the literal text is what the reviewer noticed; the thematic concern is what principle they're pointing at. A comment about "missing error handling" may thematically point at failure-mode design. A comment about "hardcoded value" may thematically point at configurability. Surface both levels.
+7. **Evaluate against code AND artifacts.** When the thematic concern is valid but the literal suggestion is suboptimal, verdict = PARTIALLY_VALID. Be receptive and objective.
 
 ### Output
 
@@ -148,6 +150,9 @@ Return a structured verdict:
 
 ### Research Rules
 
+- **Interpret thematically.** Ask "what design principle is the reviewer pointing at?" — if the thematic concern is valid, reflect it in the verdict even if the literal suggestion isn't the right fix.
+- **Trace the full provenance chain.** Reconstruct why the code exists: what requirement drove it, what decision chose this approach, what trade-offs were considered. If the chain is broken (code exists without documented rationale), that itself is a finding worth noting.
+- **Read before judging.** Do not form a verdict before completing all research steps. Premature verdicts cause confirmation bias — you'll unconsciously seek evidence that supports your initial impression and ignore evidence that contradicts it.
 - **Default to taking feedback seriously.** If a comment raises a legitimate concern, even if the current code "works," the verdict should be VALID unless artifacts explicitly justify the current approach.
 - **Conservative invalidation.** Only mark INVALID when you can cite a specific artifact, standard, or architectural decision that directly contradicts the comment's claim.
 - **PARTIALLY_VALID** when the comment identifies a real issue but proposes the wrong solution, or when only part of the feedback applies.
@@ -208,6 +213,19 @@ After all fix agents complete, run the project's test suite if identifiable:
 ```
 
 If tests fail, this becomes a BLOCKING issue — do not proceed to resolving threads until tests pass.
+
+### 4.4 Save Fix Learnings
+
+After each fix subagent completes, if the fix revealed a non-obvious pattern (e.g., a subtle dependency, a migration requirement, a test ordering issue, a surprising API behavior), save it to Vestige immediately via `remember_pattern`. Don't defer to Step 7 — fixes often surface the most actionable learnings, and delaying risks losing them.
+
+```
+mcp__vestige__codebase:
+  action: "remember_pattern"
+  codebase: "<project>"
+  name: "<pattern name>"
+  description: "<what the fix revealed and how to avoid the issue in future>"
+  files: [<affected files>]
+```
 
 ## Step 5: Reply + Resolve
 

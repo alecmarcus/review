@@ -144,7 +144,7 @@ Analyze the PR diff and metadata to add or remove agents:
 | PR includes test files | Add `test-quality-reviewer` |
 | PR adds or updates dependencies (Cargo.toml, package.json, etc.) | Add `dependency-safety-reviewer` |
 | PR touches performance-sensitive paths (hot loops, DB queries, caching) | Add `performance-optimizer` |
-| PR is purely documentation or config | Remove combat agents (black-hat, red-hat, white-hat) |
+| PR is purely documentation or config | Keep all agents — even docs/config PRs benefit from full review coverage |
 | PR touches data models, persistence, migrations | Add `architecture-reviewer` |
 
 ### 3.3 Load Agent Definitions
@@ -184,19 +184,23 @@ Review this PR from the perspective of: <agent-name>
 <full diff or wave subset>
 
 ## Instructions
-1. Review the diff thoroughly from your domain perspective
-2. For every finding, cite the relevant artifact (spec, ADR, standard, or code reference)
-3. Flag any provenance gaps — changes that don't trace to a documented decision
-4. Categorize each finding as: BLOCKING, SUGGESTION, or NIT
-5. If you find no issues in your domain, say so explicitly — don't manufacture findings
+1. **Read the entire diff line by line** — do not skip files or skim hunks. Use the Read tool on every modified file to understand surrounding context (imports, callers, adjacent functions).
+2. **Read all genesis context artifacts in full** — not just excerpted sections. Adjacent spec sections, ADR rationale, and standard preambles often contain applicable constraints.
+3. **Cite specific artifact and section** for every finding — e.g., `spec.md:45-52`, `ADR-003:rationale`, not just "see spec". Vague citations are as bad as no citations.
+4. **Trace provenance** for every significant diff hunk — identify which requirement, decision, or story drove each change. Flag untraceable changes.
+5. **Consider findings literally AND thematically** — a database call in a hot path is literally "a query" but thematically a caching/performance concern. A missing nil check is literally "no guard" but thematically a failure-mode design gap. Surface both levels.
+6. **Classify findings as binary: DO or LEARN.** DO = must fix (bugs, correctness errors, spec violations, provenance gaps). LEARN = worth remembering (patterns, conventions, non-blocking observations). Bias toward DO. If in doubt, it's a DO.
+7. If you find no issues in your domain, say so explicitly — **don't manufacture findings**.
+8. **Search Vestige** for patterns, known issues, and past review findings relevant to the files being reviewed: `mcp__vestige__search(query: "<project> <file-area> patterns issues review")`. Previous review cycles may have flagged the same file or pattern — build on that context instead of starting from zero.
 
 ## Output Format
 Return your findings as a structured list:
 
 ### Findings
-- **[BLOCKING|SUGGESTION|NIT]** <file>:<line> — <description>
+- **[DO]** <file>:<line> — <description>
   - Artifact: <spec/ADR/standard reference>
   - Reasoning: <why this matters>
+- **[LEARN]** <description> — <why this matters for future work>
 
 ### Summary
 <1-2 sentence domain-specific summary>
@@ -218,19 +222,34 @@ Wait for all agents to complete. Each returns structured findings.
 
 Collect all agent reports and:
 
-1. **Deduplicate** — if multiple agents flagged the same line/issue, merge into one finding and note which agents agreed
-2. **Group by severity** — BLOCKING first, then SUGGESTION, then NIT
-3. **Group by file** — within each severity, organize by file path
-4. **Verify provenance** — every finding should cite an artifact. If an agent finding lacks a citation, either add one or demote to NIT
+1. **Deduplicate** — if multiple agents flagged the same line/issue, merge into one finding. Preserve the **union of all citations** when merging — if agent A cited `spec.md:45` and agent B cited `ADR-003:rationale`, the merged finding includes both. Note which agents agreed.
+2. **Group by classification** — DO items first, then LEARN items
+3. **Group by file** — within each classification, organize by file path
+4. **Verify provenance** — every finding should cite a specific artifact section. If an agent finding lacks a citation, search the genesis context to find the relevant reference before demoting. Only demote to LEARN if no citation can be found AND the finding is genuinely non-actionable.
+5. **Diff coverage check** — verify every changed file in the PR was reviewed by at least one agent. If any file was missed, flag it as a gap and note which agents should have covered it.
 
 ### 5.2 Check Implementation Coverage
 
-Compare the PR against referenced PRD stories and specs:
-- Are all acceptance criteria addressed?
-- Are there spec requirements not covered by the diff?
-- Are there changes that go beyond the stated scope?
+Perform a methodical requirement-by-requirement trace against the PR:
 
-Flag any gaps as BLOCKING findings.
+1. **For each requirement** (from PRD stories, specs, acceptance criteria), locate the implementing code — cite specific `file:line-range`.
+2. **Evaluate completeness** — is the requirement fully satisfied or only partially? Note partial implementations explicitly.
+3. **Check for subtle drift** — does the implementation do what the requirement says, or something close-but-different? Drift is harder to catch than omission and more dangerous.
+4. **Flag untraceable changes** — diff hunks that don't map to any requirement. These may be legitimate (refactoring, cleanup) or scope creep.
+5. **Flag uncovered requirements** — requirements with no implementing code in the diff.
+
+Flag untraceable changes, uncovered requirements, and subtle drift as DO findings.
+
+### 5.2b Save Mid-Synthesis Learnings
+
+Before formatting the final review, save notable patterns and provenance gaps to Vestige immediately — don't wait for Step 6. If the review reveals a recurring anti-pattern or a provenance gap that keeps appearing, save it now so future reviews benefit even if this review is interrupted.
+
+```
+mcp__vestige__smart_ingest:
+  content: "REVIEW PATTERN: <pattern description>. Seen in PR #<number> affecting <files>."
+  tags: ["review-pattern", "<project>"]
+  node_type: "pattern"
+```
 
 ### 5.3 Format Review
 
@@ -243,23 +262,20 @@ Compose the final review in this structure:
 **Genesis:** <list of artifacts consulted>
 **Verdict:** <APPROVE | REQUEST_CHANGES | COMMENT>
 
-### Blocking (<count>)
+### Must Do (<count>)
 - **<file>:<line>** — <description>
   - <agent(s)>: <reasoning>
   - Ref: <artifact citation>
 
-### Suggestions (<count>)
-- **<file>:<line>** — <description>
-  - <agent(s)>: <reasoning>
+### Learnings (<count>)
+- <description> — <why this matters for future work>
+  - <agent(s)>
   - Ref: <artifact citation>
-
-### Nits (<count>)
-- **<file>:<line>** — <description>
 
 ### Implementation Coverage
-- [x] Story PREFIX-001: All criteria met
-- [ ] Story PREFIX-002: Missing criterion "..."
-- [x] ADR-015: Compliant
+- [x] Story PREFIX-001: All criteria met — `src/auth.ts:45-120`
+- [ ] Story PREFIX-002: Missing criterion "..." — no implementing code found
+- [~] Story PREFIX-003: Partial — `src/api.ts:30-50` covers auth but not rate limiting
 
 ### Provenance Gaps
 - <file>:<line> — No documented rationale found for <change>
@@ -268,8 +284,8 @@ Compose the final review in this structure:
 ### 5.4 Post Review
 
 Determine the review action:
-- If any BLOCKING findings → `REQUEST_CHANGES`
-- If only SUGGESTION/NIT findings → `COMMENT`
+- If any DO findings → `REQUEST_CHANGES`
+- If only LEARN findings → `COMMENT`
 - If no findings → `APPROVE`
 
 Post via `gh`:
