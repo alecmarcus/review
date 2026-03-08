@@ -18,6 +18,19 @@ Resolve:
 
 For each item: research the claim, validate or fix, reply with reasoning and artifact citations, and resolve.
 
+## Prime Directive: Fix, Don't Defer
+
+**Your job is to FIX things, not create issues for later. Creating a GitHub issue is not resolving feedback — it is deferring it.** Every VALID or PARTIALLY_VALID item must result in an actual code change committed to the branch.
+
+- A plan to fix something is not a fix.
+- A note explaining what should change is not a fix.
+- An issue tracking future work is not a fix.
+- Only a committed code change is a fix.
+
+The only acceptable reasons to not fix a VALID item are: (1) the fix requires human judgment on a genuinely ambiguous design tradeoff, or (2) the fix would require changes to code not in this PR's repository. Everything else gets fixed now.
+
+**Line-by-line reading is mandatory.** Every verdict must be backed by having read — not skimmed, not grepped, not assumed — the full file, the full diff, and every relevant artifact in full. If you haven't Read it with the Read tool, you don't know what it says.
+
 ## Step 1: Parse Target
 
 Resolve `$ARGUMENTS` into one or more targets:
@@ -116,20 +129,25 @@ Thread replies: <any existing replies>
 
 ### Instructions
 
-1. **Read the full file** at <path> — not just the referenced lines. Understand the module context: imports, exports, class structure, adjacent functions. Then focus on lines <start>-<end> with at least 50 lines of surrounding context.
-2. **Read the full diff** for this file and related files (imports, callers, test files). Understand what changed and what stayed the same.
-3. **Read git history** for the changed lines to understand what the code looked like before and why it changed: `git log --follow -p -- <path>` or `git blame <path>`.
-4. **Read relevant artifacts in full** — not just referenced sections:
-   - `.docs/specs/` — specifications that govern this code
-   - `.docs/adrs/` — architectural decisions that apply
-   - `.docs/standards/` — coding standards that apply
-   - `.docs/lessons/` — known pitfalls or patterns
-   - `CLAUDE.md` — project rules
-   - Commit messages on this PR for rationale
-   - Any local `.docs/` near the changed files
+1. **Read the full file** at <path> using the Read tool — the entire file, not just the referenced lines. Understand the module context: imports, exports, class structure, type definitions, adjacent functions, error handling patterns. Then re-read lines <start>-<end> with at least 50 lines of surrounding context. **You may not render a verdict on code you have not fully read.**
+2. **Read the full diff** for this file and all related files (imports, callers, test files, type definitions). Understand what changed AND what stayed the same. Read every hunk, not just the ones near the comment.
+3. **Read git history** for the changed lines: `git log --follow -p -- <path>` or `git blame <path>`. Read the actual diffs in the history, not just commit messages. Understand what the code looked like before and what motivated the change.
+4. **Read every relevant artifact in full** — not excerpted, not summarized, not inferred from titles:
+   - `.docs/specs/` — read the entire spec, not just the section that seems relevant. Constraints appear in adjacent sections.
+   - `.docs/adrs/` — read the full rationale, alternatives, and consequences sections.
+   - `.docs/standards/` — read every applicable standard rule.
+   - `.docs/lessons/` — read known pitfalls and patterns.
+   - `CLAUDE.md` — read project rules in full.
+   - PRD stories and acceptance criteria — read each criterion individually.
+   - GitHub issues referenced — read the issue body AND all comments. Clarifications often appear in comments.
+   - GitHub PR comments and review threads — read the full thread including all replies.
+   - Commit messages on this PR — read the message AND `git show <sha>` to see the actual diff.
+   - Any local `.docs/` near the changed files.
+   **A Grep match is a starting point, not research.** After finding a match, Read the full file. A function name in search results does not mean you understand what it does.
 5. **Search Vestige** specifically for past review findings on the same files, past bug fixes in the same module, and known anti-patterns: `mcp__vestige__search(query: "<project> <file-path> review findings bug fix anti-pattern")`. Include search results in your verdict.
 6. **Interpret both literally and thematically** — the literal text is what the reviewer noticed; the thematic concern is what principle they're pointing at. A comment about "missing error handling" may thematically point at failure-mode design. A comment about "hardcoded value" may thematically point at configurability. Surface both levels.
 7. **Evaluate against code AND artifacts.** When the thematic concern is valid but the literal suggestion is suboptimal, verdict = PARTIALLY_VALID. Be receptive and objective.
+8. **Do not form a verdict before completing ALL reading steps above.** Every numbered step must be completed — with actual Read tool calls, not assumptions — before you write your verdict.
 
 ### Output
 
@@ -152,14 +170,30 @@ Return a structured verdict:
 
 - **Interpret thematically.** Ask "what design principle is the reviewer pointing at?" — if the thematic concern is valid, reflect it in the verdict even if the literal suggestion isn't the right fix.
 - **Trace the full provenance chain.** Reconstruct why the code exists: what requirement drove it, what decision chose this approach, what trade-offs were considered. If the chain is broken (code exists without documented rationale), that itself is a finding worth noting.
-- **Read before judging.** Do not form a verdict before completing all research steps. Premature verdicts cause confirmation bias — you'll unconsciously seek evidence that supports your initial impression and ignore evidence that contradicts it.
-- **Default to taking feedback seriously.** If a comment raises a legitimate concern, even if the current code "works," the verdict should be VALID unless artifacts explicitly justify the current approach.
-- **Conservative invalidation.** Only mark INVALID when you can cite a specific artifact, standard, or architectural decision that directly contradicts the comment's claim.
+- **Read before judging.** Do not form a verdict before completing ALL research steps above. Every numbered step must be completed — with actual Read tool calls, not assumptions — before you write your verdict. Premature verdicts cause confirmation bias — you'll unconsciously seek evidence that supports your initial impression and ignore evidence that contradicts it.
+- **Default to taking feedback seriously.** If a comment raises a legitimate concern, even if the current code "works," the verdict should be VALID unless artifacts explicitly justify the current approach. **Do not rationalize.** If you find yourself explaining why the code is "fine actually" or "works in practice," stop and re-examine — you may be defending the code instead of evaluating the feedback.
+- **Conservative invalidation.** Only mark INVALID when you can cite a specific artifact section, standard rule, or architectural decision that **directly and specifically** contradicts the reviewer's claim. The cited artifact must address the exact concern raised — a general architectural document that "implies" the current approach is acceptable does not count. You must be able to point to a specific line or section that says the opposite of what the reviewer claims. If you cannot, the verdict is VALID or PARTIALLY_VALID.
 - **PARTIALLY_VALID** when the comment identifies a real issue but proposes the wrong solution, or when only part of the feedback applies.
 - **Always cite artifacts.** Every verdict must reference at least one artifact. If no artifact is relevant, note that as a provenance gap.
-- **Don't use scope as invalidation reasoning.** Scope alone is NEVER enough reason to invalidate an otherwise valid claim. You should accept valid claims and create plans to address them, even if they seem like scope-creep. At most, you may create a follow up story or issue. 
+- **Don't use scope as invalidation reasoning.** Scope alone is NEVER enough reason to invalidate an otherwise valid claim. If a comment raises a valid concern about code changed in this PR, fix it. If the concern is valid but about code NOT changed in this PR, fix what you can and create a follow-up issue only for the truly unreachable remainder.
 
 ## Step 4: Fix (Parallel Where File-Isolated)
+
+### Commit Strategy: One Fix, One Commit
+
+Each fix MUST be its own atomic, revertible commit. Do NOT batch multiple fixes into a single commit.
+
+- Each commit addresses exactly one review thread or comment
+- Each commit must be independently revertible via `git revert <sha>` without breaking other fixes
+- Commit message format:
+  ```
+  fix(review): <short description>
+
+  Addresses <thread-id or comment-url>.
+  <one-line rationale>
+  ```
+- If a fix touches multiple files for the same thread, all go in one commit
+- If multiple threads affect the same lines in a file, each thread still gets its own commit (applied sequentially)
 
 For threads with VALID or PARTIALLY_VALID verdicts, group fixes by file to determine what can run in parallel:
 
@@ -192,27 +226,41 @@ Apply a fix based on review feedback.
 1. Read the current state of <file> at the relevant lines
 2. Implement the fix described in the research report
 3. Follow all project standards from CLAUDE.md and .docs/standards/
-4. Run any relevant tests after the fix:
+4. **Commit this fix as its own atomic commit** — stage only the files you changed, not unrelated files:
+   ```bash
+   git add <only-the-files-you-changed>
+   git commit -m "fix(review): <short description>
+
+   Addresses <thread-id or comment-url>.
+   <one-line rationale>"
+   ```
+   Do NOT leave changes uncommitted. This commit must contain only changes for this specific thread — one thread, one commit.
+5. Run any relevant tests after committing:
    - Look for test files related to the changed code
    - Run the project's test command if identifiable
-5. If tests fail, diagnose and fix — do not leave failing tests
+6. If tests fail, fix the issue and amend YOUR commit (`git commit --amend`) — do not create a separate "fix tests" commit for this thread
 
 ### Constraints
+- **You MUST edit files.** If you complete this task without making a code change, you have failed. A VALID verdict means the code needs to change — your job is to change it, not to explain what should change.
 - Only modify what the research report identifies — do not "improve" adjacent code
 - Preserve existing code style and patterns
-- If the fix requires changes beyond the identified scope, note what else needs changing but only fix what was identified
+- If the fix requires changes beyond the identified scope, implement the core fix AND note what else needs changing
 """)
 ```
 
 ### 4.3 Verify Fixes
 
-After all fix agents complete, run the project's test suite if identifiable:
-```bash
-# Detect and run tests — check for common patterns
-# cargo test, npm test, pytest, go test, etc.
-```
+After all fix agents complete:
 
-If tests fail, this becomes a BLOCKING issue — do not proceed to resolving threads until tests pass.
+1. **Verify atomic commits:** Run `git log --oneline` and confirm each fix produced its own commit. If any fix agent failed to commit, stage its changes and commit now with the proper format. If any agent batched multiple fixes into one commit, note this as a process failure.
+
+2. **Run the full test suite:**
+   ```bash
+   # Detect and run tests — check for common patterns
+   # cargo test, npm test, pytest, go test, etc.
+   ```
+
+3. If tests fail, use `git log --oneline` to identify which fix commit likely broke them. Fix the issue by amending the responsible commit or adding a targeted follow-up. Do NOT proceed to resolving threads until tests pass.
 
 ### 4.4 Save Fix Learnings
 
@@ -257,8 +305,8 @@ Refs: <artifact citations>
 ```
 Partially addressed in <commit-sha>.
 
-<what was fixed and why>
-<what was not changed and why>
+**Fixed:** <what was fixed and why>
+**Remaining:** <what was not changed, why, and the concrete next step — a follow-up commit on this PR, not "consider doing X later">
 
 Refs: <artifact citations>
 ```
@@ -273,10 +321,11 @@ After posting the reply, resolve the thread using the `ResolveReviewThread` muta
 
 **Resolution rules:**
 - VALID + fix committed + tests pass → resolve
-- INVALID + reply posted → resolve
+- INVALID + HIGH confidence + reply posted → resolve
+- INVALID + MEDIUM or LOW confidence + reply posted → do NOT resolve, leave for human review
 - PARTIALLY_VALID + fix committed + tests pass → resolve
 - Any fix with failing tests → do NOT resolve, note in summary
-- Research confidence LOW → do NOT auto-resolve, note for human review
+- Research confidence LOW on any verdict → do NOT auto-resolve, note for human review
 
 ### 5.4 GitHub Issues
 
@@ -307,7 +356,7 @@ gh api graphql --input - << EOF
 EOF
 ```
 
-**Is it out of scope?**
+**Is it genuinely out of scope?** (STRICT definition: the comment is about functionality in files NOT changed in this PR AND not directly related to the PR's changes. If the PR touched the code being discussed, it is in scope — period. If the comment raises a valid concern about changed code but the fix seems large, it is still in scope — fix it or fix the portion you can.)
 ```bash
 gh api graphql --input - << EOF
 {"query":"mutation MinimizeComment(\$subjectId: ID!, \$classifier: ReportedContentClassifiers!) { minimizeComment(input: { subjectId: \$subjectId, classifier: \$classifier }) { minimizedComment { isMinimized minimizedReason } } }","variables":{"subjectId":"$COMMENT_ID","classifier":"OFF_TOPIC"}}
@@ -373,8 +422,8 @@ After all items are processed, output a summary:
 
 ---
 
-### Fixes
-- <file>:<line> — <description> (commit <sha>)
+### Fixes (each is its own atomic commit)
+- `<sha>` <file>:<line> — <description>
 
 ### Invalidations
 - <file>:<line> — <reasoning summary>

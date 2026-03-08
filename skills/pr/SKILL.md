@@ -11,6 +11,17 @@ allowed-tools: Bash, Read, Glob, Grep, Task, WebFetch, mcp__vestige__search, mcp
 
 Comprehensive code review with provenance tracing. Gathers all genesis context (specs, ADRs, PRDs, loom logs, stories), dispatches the project's preferred review agents in parallel, and produces a thorough review.
 
+## Prime Directive: Thoroughness Over Speed
+
+**Every claim, finding, and verdict MUST be backed by line-by-line reading of the actual code and full reading of every referenced artifact.** No skimming. No assuming. No grepping for a term and claiming to have done research. No summarizing an artifact from its title.
+
+- **Code**: Use the Read tool on every modified file — the entire file, not just changed lines. Read every line of the diff. Read surrounding context (imports, callers, tests, adjacent functions). If you haven't Read it, you can't make claims about it.
+- **Artifacts**: Read specs, ADRs, PRDs, stories, acceptance criteria, GitHub issues, and GitHub comments **in full**. Every section, not just the one that seems relevant. Adjacent sections often contain the constraint that matters most.
+- **Commits**: Read the actual diff of every commit referenced via `git show <sha>`. Do not cite a commit hash without having read the changes it introduced line by line.
+- **No shortcuts**: A `Grep` hit is a starting point, not research. After finding a match, Read the full file and understand the context. A function name match does not mean you understand what the function does, what calls it, or what it depends on.
+
+Agents that skip reading steps or produce findings based on assumptions will generate false positives and miss real issues. **Read first, judge second, always.**
+
 ## Step 1: Parse Target
 
 Resolve `$ARGUMENTS` into a PR reference:
@@ -184,14 +195,23 @@ Review this PR from the perspective of: <agent-name>
 <full diff or wave subset>
 
 ## Instructions
-1. **Read the entire diff line by line** — do not skip files or skim hunks. Use the Read tool on every modified file to understand surrounding context (imports, callers, adjacent functions).
-2. **Read all genesis context artifacts in full** — not just excerpted sections. Adjacent spec sections, ADR rationale, and standard preambles often contain applicable constraints.
-3. **Cite specific artifact and section** for every finding — e.g., `spec.md:45-52`, `ADR-003:rationale`, not just "see spec". Vague citations are as bad as no citations.
-4. **Trace provenance** for every significant diff hunk — identify which requirement, decision, or story drove each change. Flag untraceable changes.
-5. **Consider findings literally AND thematically** — a database call in a hot path is literally "a query" but thematically a caching/performance concern. A missing nil check is literally "no guard" but thematically a failure-mode design gap. Surface both levels.
-6. **Classify findings as binary: DO or LEARN.** DO = must fix (bugs, correctness errors, spec violations, provenance gaps). LEARN = worth remembering (patterns, conventions, non-blocking observations). Bias toward DO. If in doubt, it's a DO.
-7. If you find no issues in your domain, say so explicitly — **don't manufacture findings**.
-8. **Search Vestige** for patterns, known issues, and past review findings relevant to the files being reviewed: `mcp__vestige__search(query: "<project> <file-area> patterns issues review")`. Previous review cycles may have flagged the same file or pattern — build on that context instead of starting from zero.
+1. **Read every modified file in full using the Read tool.** Not just the changed lines — the entire file. Understand imports, exports, class structure, type definitions, adjacent functions, error handling patterns. Then re-read the diff hunks with that full context. If a file is too large, read it in sections, but cover every section. **You may not produce any finding about a file you have not fully read.**
+2. **Read every genesis context artifact in full.** This means:
+   - Every spec document referenced or relevant to the changed code — read the entire spec, not just the section that seems relevant. Constraints often appear in adjacent sections, preambles, or appendices.
+   - Every ADR — read the full rationale, alternatives considered, and consequences sections.
+   - Every PRD story and its acceptance criteria — read each criterion individually and trace it to implementing code.
+   - Every referenced GitHub issue — read the issue body AND all comments. Context and clarifications often appear in comments, not the original body.
+   - Every referenced GitHub PR comment or review thread — read the full thread including all replies.
+   - Every commit on this PR — read the commit message AND the actual diff via `git show <sha>`. Do not cite a commit without having read its changes.
+   - `CLAUDE.md` and all `.docs/` artifacts — read in full, not excerpted.
+3. **No skimming, no shortcuts, no assumptions.** A `Grep` match is a starting point, not research. After finding a match, use Read to understand the full file context. A function name appearing in a search result does not mean you understand what it does, what calls it, or what it depends on. **If you haven't read it line by line, you don't know what it says.**
+4. **Cite specific artifact, section, and line range** for every finding — e.g., `spec.md:45-52`, `ADR-003:rationale`, `story PROJ-42 acceptance criterion 3`. Not "see spec" or "per the ADR." Vague citations are as bad as no citations.
+5. **Trace provenance for every significant diff hunk** — identify which requirement, decision, or story drove each change. Follow the chain: requirement → design decision → implementation. Flag untraceable changes (code that exists without documented rationale).
+6. **Consider findings literally AND thematically** — a database call in a hot path is literally "a query" but thematically a caching/performance concern. A missing nil check is literally "no guard" but thematically a failure-mode design gap. Surface both levels.
+7. **Classify findings as binary: DO or LEARN.** DO = must fix (bugs, correctness errors, spec violations, provenance gaps, unmet acceptance criteria). LEARN = worth remembering (patterns, conventions, non-blocking observations). **Bias hard toward DO. If in doubt, it's a DO.** Do not rationalize away a concern — if it looks like a problem, classify it as DO and explain why. The bar for LEARN is high: you must be confident the issue has zero correctness, security, or spec-compliance impact.
+8. **Do not manufacture findings** — but also **do not manufacture excuses**. If you find yourself explaining why something "is fine actually" or "works in practice," stop and re-examine. Your job is to surface real problems, not to defend the code.
+9. **Search Vestige** for patterns, known issues, and past review findings relevant to the files being reviewed: `mcp__vestige__search(query: "<project> <file-area> patterns issues review")`. Previous review cycles may have flagged the same file or pattern — build on that context instead of starting from zero.
+10. **Evaluate commit quality** — review the PR's commit history (`git log --oneline` for the PR range). Flag non-atomic commits that bundle unrelated changes, oversized commits that should be split, missing or unhelpful commit messages, and commits that aren't independently revertible. Each logical change should be its own commit.
 
 ## Output Format
 Return your findings as a structured list:
@@ -225,8 +245,9 @@ Collect all agent reports and:
 1. **Deduplicate** — if multiple agents flagged the same line/issue, merge into one finding. Preserve the **union of all citations** when merging — if agent A cited `spec.md:45` and agent B cited `ADR-003:rationale`, the merged finding includes both. Note which agents agreed.
 2. **Group by classification** — DO items first, then LEARN items
 3. **Group by file** — within each classification, organize by file path
-4. **Verify provenance** — every finding should cite a specific artifact section. If an agent finding lacks a citation, search the genesis context to find the relevant reference before demoting. Only demote to LEARN if no citation can be found AND the finding is genuinely non-actionable.
+4. **Verify provenance** — every finding should cite a specific artifact section. If an agent finding lacks a citation, search the genesis context yourself to find the supporting reference. **Default: keep as DO.** Only weaken to LEARN if no artifact reference exists anywhere AND the finding has zero correctness, security, or spec-compliance impact. If you're uncertain, it stays as DO.
 5. **Diff coverage check** — verify every changed file in the PR was reviewed by at least one agent. If any file was missed, flag it as a gap and note which agents should have covered it.
+6. **LEARN → DO reclassification** — review every LEARN finding and ask: "Would a senior reviewer expect this to block merge?" If yes, reclassify as DO. Common misclassifications: unmet acceptance criteria marked as LEARN, spec deviations marked as LEARN, missing error handling in user-facing paths marked as LEARN, security concerns marked as LEARN.
 
 ### 5.2 Check Implementation Coverage
 
@@ -279,6 +300,10 @@ Compose the final review in this structure:
 
 ### Provenance Gaps
 - <file>:<line> — No documented rationale found for <change>
+
+### Commit Quality
+- <commit-sha> — <issue: non-atomic, bundles unrelated changes, missing message, not revertible, etc.>
+- or "All commits are atomic and well-structured"
 ```
 
 ### 5.4 Post Review
